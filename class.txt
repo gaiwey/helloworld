@@ -1,0 +1,761 @@
+else if (type == StatusContants.type_notservice) {// 待处理
+
+	// 药店订单
+	if (uuid.getRoleCode()
+			.equals(StatusContants.role_code_pharmacy)) {
+		int[] subscribe_order_status_treat_arr = {
+				StatusContants.subscribe_order_status_dis_confirm,
+				StatusContants.subscribe_order_status_dis_door,
+				StatusContants.subscribe_order_status_user };// 预约待处理
+
+		// 从mongo中查询预约已处理的订单
+		Query<SubscribeOrder> q_so_treat = this.mongoMchSubscribeOrderDao
+				.selectByMedicineShopUserIdStatusArrOffsetLimit(
+						user_id, subscribe_order_status_treat_arr,
+						offset, limit);
+		list_so = this.mongoMchSubscribeOrderDao.find(q_so_treat)
+				.asList();
+
+		// 如果mongo中没查到,则从oracle里重新取
+		if (list_so == null || list_so.isEmpty()) {
+
+			// 参数赋值
+			Map<String, Object> map_par = new HashMap<String, Object>();
+			map_par.put("USER_ID", user_id);
+			map_par.put("STATUS_ARR",
+					subscribe_order_status_treat_arr);
+			map_par.put("RN_START", offset + 1);
+			map_par.put("RN_END", offset + limit + 1);
+
+			// 查询预约已处理的订单
+			list_so = this.subscribeOrderDao
+					.selectAllDataByMedicineShopUserIdStatusArrRnStartRnEnd(map_par);
+
+		}
+	} else {
+		int[] subscribe_order_status_treat_arr = {
+				StatusContants.subscribe_order_status_dis_door,
+				StatusContants.subscribe_order_status_user,
+				StatusContants.subscribe_order_status_dis_bid };// 预约待处理
+
+		// 从mongo中查询预约已处理的订单
+		Query<SubscribeOrder> q_so_treat = this.mongoMchSubscribeOrderDao
+				.selectByUserIdStatusArrOffsetLimit(user_id,
+						subscribe_order_status_treat_arr, offset,
+						limit);
+		list_so = this.mongoMchSubscribeOrderDao.find(q_so_treat)
+				.asList();
+
+		// 如果mongo中没查到,则从oracle里重新取
+		if (list_so == null || list_so.isEmpty()) {
+
+			// 参数赋值
+			Map<String, Object> map_par = new HashMap<String, Object>();
+			map_par.put("USER_ID", user_id);
+			map_par.put("STATUS_ARR",
+					subscribe_order_status_treat_arr);
+			map_par.put("RN_START", offset + 1);
+			map_par.put("RN_END", offset + limit + 1);
+
+			// 查询预约已处理的订单
+			list_so = this.subscribeOrderDao
+					.selectAllDataByUserIdStatusArrRnStartRnEnd(map_par);
+
+		}
+	}
+
+	// 执行条件
+	if (list_so != null && !list_so.isEmpty()) {
+
+		// 游标
+		int cur = 1;
+
+		// 遍历每一条数据
+		for (SubscribeOrder so : list_so) {
+
+			// 获取预约订单资源
+			SubscribeOrderResource sor = this.subscribeOrderResourceDao
+					.selectAllDataByOrderId(so.getORDER_ID());
+			// 格式化价格
+			String price;
+
+			// 获取格式化后的订单显示金额
+			price = getHandledPrice(so);
+
+			// 判断是否有语音资源
+			String is_voice = "0";
+			if (sor != null
+					&& (!Utils.isEmpty(sor.getVOICE_1())
+							|| !Utils.isEmpty(sor.getVOICE_2())
+							|| !Utils.isEmpty(sor.getVOICE_3()) || !Utils
+								.isEmpty(sor.getVOICE_4()))) {
+				is_voice = "1";
+			}
+
+			// 获取所需服务
+			String need_service = "";
+			if (!Utils.isEmpty(so.getROLETYPE())
+					&& !Utils.isEmpty(so.getSERVICECODE())) {
+				
+				MchServices ms = mongoMchServicesDao.getService(so.getROLETYPE(), so.getSERVICECODE(), so.getSERVICEACODE());
+				if (ms != null) {
+					need_service = ms.getServiceName();
+				}
+			}
+
+			// 参数赋值
+			Map<String, Object> map_par = new HashMap<String, Object>();
+			map_par.put("USER_ID", so.getTARGETUSER());
+			map_par.put("STATUS",
+					StatusContants.user_status_audit_through);
+
+			// 获取用户信息
+			UcUserInfo uui = this.ucUserInfoDao
+					.selectAllDataByUserIdStatus(map_par);
+
+			map_par.put("USER_ID", so.getINITIATOR_USER());
+
+			// 获取医院科室字典数据
+			String hospitalName = "";
+			String departName = "";
+			String subDepartName = "";
+
+			if (so.getROLETYPE().equals(
+					StatusContants.role_code_accompany)
+					&& so.getHOSPITAL_FLAG() == 1) {
+				if (so.getHOSPITAL_ID() != null) {
+					GhHospital gh = this.mongoMchGhHospitalDao
+							.getById(so.getHOSPITAL_ID());
+					if (gh != null)
+						hospitalName = gh.getName();
+				}
+
+				if (StringUtils.isNotBlank(so.getDEPART_1())) {
+					GhDepart gd = this.mongoMchGhDepartDao
+							.getById(Long.parseLong(so
+									.getDEPART_1()));
+					if (gd != null)
+						departName = gd.getName();
+				}
+
+				if (StringUtils.isNotBlank(so.getDEPART_2())) {
+					GhSubDepart gsd = this.mongoMchGhSubDepartDao
+							.getById(Long.parseLong(so
+									.getDEPART_2()));
+					if (gsd != null)
+						subDepartName = gsd.getName();
+				}
+			} else {
+				if (so.getHOSPITAL_ID() != null) {
+					DicHospital dh = this.dicHospitalDao
+							.selectAllDataByHospitalId(so
+									.getHOSPITAL_ID());
+					if (dh != null)
+						hospitalName = dh.getNAME();
+				}
+
+				// 获取一级科室字典数据
+				if (!Utils.isEmpty(so.getDEPART_1())) {
+					DicFirstDepartment dfd = this.dicFirstDepartmentDao
+							.selectAllDataByFirstDepartmentId(Long
+									.parseLong(so.getDEPART_1()));
+					if (dfd != null)
+						departName = dfd.getNAME();
+				}
+
+				// 获取二级科室字典数据
+				if (!Utils.isEmpty(so.getDEPART_2())) {
+					DicSecondDepartment dsd = this.dicSecondDepartmentDao
+							.selectAllDataBySecondDepartmentId(Long
+									.parseLong(so.getDEPART_2()));
+					if (dsd != null)
+						subDepartName = dsd.getNAME();
+				}
+			}
+
+			// 容器赋值
+			Map<String, String> map_inner = new LinkedHashMap<String, String>();
+			map_inner.put("times", so.getTIMES() + "");
+			map_inner.put("order_id",
+					String.valueOf(so.getORDER_ID()));
+			// 日本精密体检
+			if (StringUtils.equals(so.getROLETYPE(),
+					StatusContants.role_code_prolactin_overseas)
+					&& StringUtils
+							.equals(so.getSERVICECODE(),
+									RoleTitleContants.role_title_overseas_japan)
+					&& StringUtils
+							.equals(so.getSERVICEACODE(),
+									ServiceContants.role_title_overseas_japan_jmtj)) {
+				if (so.getPROFESSIONCODE().equals("001")) {
+					map_inner
+							.put("service_name",
+									Utils.replaceNullToEmptyStr(need_service)
+											+ "-初级");
+				}
+				if (so.getPROFESSIONCODE().equals("002")) {
+					map_inner
+							.put("service_name",
+									Utils.replaceNullToEmptyStr(need_service)
+											+ "-高级");
+				}
+			}
+			// 送药上门
+			else if (so.getROLETYPE().equals(
+					StatusContants.role_code_pharmacy)) {
+				
+				MchServices ms = mongoMchServicesDao.getService(so.getROLETYPE(), StatusContants.role_code_pharmacy, "");
+				
+				map_inner.put("service_name", ms!=null?ms.getServiceName():"");
+				
+			} else {
+				map_inner.put("service_name",
+						Utils.replaceNullToEmptyStr(need_service));
+			}
+
+			map_inner.put("price", price);
+			map_inner.put("is_voice", is_voice);
+			map_inner.put("create_time", Utils.dateToString(
+					so.getCREATE_DATE(),
+					Contants.date_format_yyyyMMddHHmmss_1));
+
+			if (!so.getROLETYPE().equals(
+					StatusContants.role_code_pharmacy)) {
+				// 服务时间格式化日期
+				String service_time_str = "";
+				// 陪诊、护工、月嫂、催乳师、海外就医--日期
+				if (so.getSERVICETIME_START1() != null
+						&& so.getSERVICETIME_END1() != null) {
+					service_time_str = Utils.formatServiceTime(
+							so.getSERVICETIME_START1(),
+							so.getSERVICETIME_END1(),
+							so.getROLETYPE());
+				} else {
+					service_time_str = Utils.formatServiceTime(
+							so.getSERVICETIME_START(),
+							so.getSERVICETIME_END(),
+							so.getROLETYPE());
+				}
+				map_inner.put("service_time", service_time_str);
+
+			}
+
+			// 获取档案信息
+			if (!so.getROLETYPE().equals(
+					StatusContants.role_code_pharmacy)) {
+				PatientArchivesInfo pai = this.patientArchivesInfoDao
+						.selectAllDataByPatientArchivesId(so
+								.getPATIENT_ARCHIVES_ID());
+
+				// 获取用户信息
+				UcUserInfo uui_p = this.ucUserInfoDao
+						.selectAllDataByUserIdStatus(map_par);
+
+				map_inner.put("real_name", Utils
+						.replaceNullToEmptyStr(uui_p == null ? ""
+								: uui_p.getUserRealName()));
+				map_inner.put(
+						"relation_ship",
+						pai == null ? "" : Utils
+								.replaceNullToEmptyStr(pai
+										.getRELATIONSHIP()));
+				map_inner
+						.put("sex",
+								pai == null ? ""
+										: Utils.replaceNullToEmptyStr(StatusContants.map_sex_type
+												.get(pai.getSEX())));
+				map_inner.put(
+						"age",
+						pai == null ? "" : Utils
+								.replaceNullToEmptyStr(String
+										.valueOf(pai.getAGE())));
+			}
+
+			if (StatusContants.role_code_nurse.equals(so
+					.getROLETYPE())) {
+				map_inner.put("remark", "");
+			} else {
+				map_inner
+						.put("remark", Utils
+								.replaceNullToEmptyStr(so
+										.getREMARK()));
+			}
+			map_inner.put("descrip", Utils.replaceNullToEmptyStr(so
+					.getDESCRIPTION()));
+
+			if (so.getROLETYPE().equals(
+					StatusContants.role_code_pharmacy)) {
+				if (so.getORDERSTATUS() == 0) {
+					map_inner.put("status", "待抢约");
+				} else if (so.getORDERSTATUS() == 1) {
+					map_inner.put("status", "配送中");
+				} else if (so.getORDERSTATUS() == -1) {
+					map_inner.put("status", "已过期");
+				} else if (so.getORDERSTATUS() == 3) {
+					map_inner.put("status", "已取消");
+				} else if (so.getORDERSTATUS() == 6) {
+					map_inner.put("status", "已关闭");
+				} else if (so.getORDERSTATUS() == 7) {
+					map_inner.put("status", "人工取消订单");
+				} else if (so.getORDERSTATUS() == 2) {
+					
+					if(StringUtils.isNotBlank(version) && Integer.parseInt(version) >= 32){
+						map_inner.put("status", "已送达");
+					}
+					else
+						map_inner.put("status", "已服务");
+					
+				} else if (so.getORDERSTATUS() == 8) {
+					map_inner.put("status", "已送达");
+				} else if (so.getORDERSTATUS() == 9) {
+					map_inner.put("status", "已拒收");
+				}
+
+			} else {
+				map_inner.put(
+						"status",
+						StatusContants.map_subscribe_order_status
+								.get(so.getORDERSTATUS()).replace(
+										"待上门", "待服务"));
+			}
+
+			map_inner.put("distance", so.getDISTANCE() == null ? ""
+					: this.formatDistance(so.getDISTANCE()));
+			map_inner.put("end_cur", String.valueOf(cur + offset));
+			map_inner
+					.put("role_code", Utils
+							.replaceNullToEmptyStr(uuid
+									.getRoleCode()));
+			map_inner.put("role_code1", so.getROLETYPE());
+			map_inner.put("hospital", hospitalName);
+			map_inner.put("department1", departName);
+			map_inner.put("department2", subDepartName);
+			map_inner.put("doctor_name", Utils
+					.replaceNullToEmptyStr(so.getDOCTOR_NAME()));
+			
+			//获取职称
+			MchRoleTitle mrt = mongoMchRoleTitleDao.getRoleTitleByCode(so.getROLETYPE() + so.getPROFESSIONCODE());
+			
+			map_inner.put("title_name", mrt!=null?mrt.getTitle_name():"");
+			String address = "";
+			String door_plate = "";
+			if (!Utils.isEmpty(so.getADDRESSID())) {
+				SubscribeResourceAndAddressAndArchiveInfo sradaai = subscribeOrderDao
+						.selectSubscribeOrderAddressInfo(Long
+								.parseLong(so.getADDRESSID()));
+				address = sradaai.getADDRESS();
+				door_plate = sradaai.getDOORPLATE();
+			}
+			map_inner
+					.put("address",
+							Utils.replaceNullToEmptyStr(address)
+									+ " "
+									+ Utils.replaceNullToEmptyStr(door_plate));
+			map_inner.put("orderType", so.getORDERTYPE().intValue()
+					+ "");
+
+			// 送药上门订单信息
+			if (so.getROLETYPE().equals(
+					StatusContants.role_code_pharmacy)) {
+				map_inner.put("medicineStatus",
+						so.getMEDICINE_STATUS() + "");// 配药状态
+														// 0:未配药;1:已配药
+				map_inner.put("consigneeName", Utils
+						.replaceNullToEmptyStr(so
+								.getCONSIGNEE_NAME()));// 收货人姓名
+				map_inner.put("consigneeAddress", Utils
+						.replaceNullToEmptyStr(so
+								.getCONSIGNEE_ADDRESS()));// 收货地址
+				map_inner.put("consigneeMobile", Utils
+						.replaceNullToEmptyStr(so
+								.getCONSIGNEE_MOBILE()));// 收货人电话
+			}
+
+			// 返回变量赋值
+			list_data.add(map_inner);
+
+			// 游标自加
+			cur++;
+
+		}
+	}
+
+} else if (type == StatusContants.medical_order_relation_status_processed) {// 已处理
+
+	// 参数容器声明
+	int[] subscribe_order_status_processed_arr = {
+			StatusContants.subscribe_order_status_door,
+			StatusContants.subscribe_order_status_return,
+			StatusContants.subscribe_order_status_pass_date,
+			StatusContants.subscribe_order_status_bak_cancel,
+			StatusContants.subscribe_order_status_reject };// 预约已处理
+
+	// 药店订单
+	if (uuid.getRoleCode()
+			.equals(StatusContants.role_code_pharmacy)) {
+
+		// 从mongo中查询预约已处理的订单
+		Query<SubscribeOrder> q_so_processed = this.mongoMchSubscribeOrderDao
+				.selectByMedicineShopUserIdStatusArrOffsetLimit(
+						user_id,
+						subscribe_order_status_processed_arr,
+						offset, limit);
+		list_so = this.mongoMchSubscribeOrderDao.find(
+				q_so_processed).asList();
+
+		// 如果mongo中没查到,则从oracle里重新取
+		if (list_so == null || list_so.isEmpty()) {
+
+			// 参数赋值
+			Map<String, Object> map_par = new HashMap<String, Object>();
+			map_par.put("USER_ID", user_id);
+			map_par.put("STATUS_ARR",
+					subscribe_order_status_processed_arr);
+			map_par.put("RN_START", offset + 1);
+			map_par.put("RN_END", offset + limit + 1);
+
+			// 查询预约已处理的订单
+			list_so = this.subscribeOrderDao
+					.selectAllDataByMedicineShopUserIdStatusArrRnStartRnEnd(map_par);
+
+		}
+	} else {
+
+		// 从mongo中查询预约已处理的订单
+		Query<SubscribeOrder> q_so_processed = this.mongoMchSubscribeOrderDao
+				.selectByUserIdStatusArrOffsetLimit(user_id,
+						subscribe_order_status_processed_arr,
+						offset, limit);
+		list_so = this.mongoMchSubscribeOrderDao.find(
+				q_so_processed).asList();
+
+		// 如果mongo中没查到,则从oracle里重新取
+		if (list_so == null || list_so.isEmpty()) {
+
+			// 参数赋值
+			Map<String, Object> map_par = new HashMap<String, Object>();
+			map_par.put("USER_ID", user_id);
+			map_par.put("STATUS_ARR",
+					subscribe_order_status_processed_arr);
+			map_par.put("RN_START", offset + 1);
+			map_par.put("RN_END", offset + limit + 1);
+
+			// 查询预约已处理的订单
+			list_so = this.subscribeOrderDao
+					.selectAllDataByUserIdStatusArrRnStartRnEnd(map_par);
+
+		}
+	}
+
+	// 执行条件
+	if (list_so != null && !list_so.isEmpty()) {
+
+		// 游标
+		int cur = 1;
+
+		// 遍历每一条数据
+		for (SubscribeOrder so : list_so) {
+
+			// 格式化服务日期
+			// 服务时间格式化日期
+			String service_time_str = "";
+			// 陪诊、护工、月嫂、催乳师、海外就医--日期
+			if (so.getSERVICETIME_START1() != null
+					&& so.getSERVICETIME_END1() != null) {
+				service_time_str = Utils.formatServiceTime(
+						so.getSERVICETIME_START1(),
+						so.getSERVICETIME_END1(), so.getROLETYPE());
+			} else {
+				service_time_str = Utils.formatServiceTime(
+						so.getSERVICETIME_START(),
+						so.getSERVICETIME_END(), so.getROLETYPE());
+			}
+
+			// 获取预约订单资源
+			SubscribeOrderResource sor = this.subscribeOrderResourceDao
+					.selectAllDataByOrderId(so.getORDER_ID());
+
+			// 获取所需服务
+			String need_service = "";
+			if (!Utils.isEmpty(so.getROLETYPE())
+					&& !Utils.isEmpty(so.getSERVICECODE())) {
+
+				MchServices ms = mongoMchServicesDao.getService(so.getROLETYPE(), so.getSERVICECODE(), so.getSERVICEACODE());
+				
+				if (ms!=null) {
+					need_service = ms.getServiceName();
+				}
+			}
+
+			// 格式化价格
+			String price;
+
+			// 获取格式化后的订单显示金额
+			price = getHandledPrice(so);
+
+			// 判断是否有语音资源
+			String is_voice = "0";
+			if (sor != null
+					&& (!Utils.isEmpty(sor.getVOICE_1())
+							|| !Utils.isEmpty(sor.getVOICE_2())
+							|| !Utils.isEmpty(sor.getVOICE_3()) || !Utils
+								.isEmpty(sor.getVOICE_4()))) {
+				is_voice = "1";
+			}
+
+			// 参数赋值
+			Map<String, Object> map_par = new HashMap<String, Object>();
+			map_par.put("USER_ID", so.getTARGETUSER());
+			map_par.put("STATUS",
+					StatusContants.user_status_audit_through);
+
+			map_par.put("USER_ID", so.getINITIATOR_USER());
+
+			// 获取用户信息
+			UcUserInfo uui_p = this.ucUserInfoDao
+					.selectAllDataByUserIdStatus(map_par);
+
+			// 获取医院字典数据
+			String hospitalName = "";
+			String departName = "";
+			String subDepartName = "";
+
+			if (so.getROLETYPE().equals(
+					StatusContants.role_code_accompany)
+					&& so.getHOSPITAL_FLAG() == 1) {
+				if (so.getHOSPITAL_ID() != null) {
+					GhHospital gh = this.mongoMchGhHospitalDao
+							.getById(so.getHOSPITAL_ID());
+					if (gh != null)
+						hospitalName = gh.getName();
+				}
+
+				if (StringUtils.isNotBlank(so.getDEPART_1())) {
+					GhDepart gd = this.mongoMchGhDepartDao
+							.getById(Long.parseLong(so
+									.getDEPART_1()));
+					if (gd != null)
+						departName = gd.getName();
+				}
+
+				if (StringUtils.isNotBlank(so.getDEPART_2())) {
+					GhSubDepart gsd = this.mongoMchGhSubDepartDao
+							.getById(Long.parseLong(so
+									.getDEPART_2()));
+					if (gsd != null)
+						subDepartName = gsd.getName();
+				}
+			} else {
+				if (so.getHOSPITAL_ID() != null) {
+					DicHospital dh = this.dicHospitalDao
+							.selectAllDataByHospitalId(so
+									.getHOSPITAL_ID());
+					if (dh != null)
+						hospitalName = dh.getNAME();
+				}
+
+				// 获取一级科室字典数据
+				if (!Utils.isEmpty(so.getDEPART_1())) {
+					DicFirstDepartment dfd = this.dicFirstDepartmentDao
+							.selectAllDataByFirstDepartmentId(Long
+									.parseLong(so.getDEPART_1()));
+					if (dfd != null)
+						departName = dfd.getNAME();
+				}
+
+				// 获取二级科室字典数据
+				if (!Utils.isEmpty(so.getDEPART_2())) {
+					DicSecondDepartment dsd = this.dicSecondDepartmentDao
+							.selectAllDataBySecondDepartmentId(Long
+									.parseLong(so.getDEPART_2()));
+					if (dsd != null)
+						subDepartName = dsd.getNAME();
+				}
+			}
+
+			// 容器赋值
+			Map<String, String> map_inner = new LinkedHashMap<String, String>();
+			map_inner.put("times", so.getTIMES() + "");
+			map_inner.put("order_id",
+					String.valueOf(so.getORDER_ID()));
+			// 日本精密体检
+			if (StringUtils.equals(so.getROLETYPE(),
+					StatusContants.role_code_prolactin_overseas)
+					&& StringUtils
+							.equals(so.getSERVICECODE(),
+									RoleTitleContants.role_title_overseas_japan)
+					&& StringUtils
+							.equals(so.getSERVICEACODE(),
+									ServiceContants.role_title_overseas_japan_jmtj)) {
+				if (so.getPROFESSIONCODE().equals("001")) {
+					map_inner
+							.put("service_name",
+									Utils.replaceNullToEmptyStr(need_service)
+											+ "-初级");
+				}
+				if (so.getPROFESSIONCODE().equals("002")) {
+					map_inner
+							.put("service_name",
+									Utils.replaceNullToEmptyStr(need_service)
+											+ "-高级");
+				}
+			}
+			// 送药上门
+			else if (so.getROLETYPE().equals(
+					StatusContants.role_code_pharmacy)) {
+				
+				MchServices ms = mongoMchServicesDao.getService(so.getROLETYPE(), StatusContants.role_code_pharmacy,"");
+				
+				map_inner.put("service_name", ms!=null?ms.getServiceName():"");
+			} else {
+				map_inner.put("service_name",
+						Utils.replaceNullToEmptyStr(need_service));
+			}
+			
+			map_inner.put("price", price);
+			map_inner.put("is_voice", is_voice);
+			map_inner.put("create_time", Utils.dateToString(
+					so.getCREATE_DATE(),
+					Contants.date_format_yyyyMMddHHmmss_1));
+			map_inner.put("service_time", service_time_str);
+
+			if (!StringUtils.equals(so.getROLETYPE(),
+					StatusContants.role_code_pharmacy)) {
+				// 获取档案信息
+				PatientArchivesInfo pai = this.patientArchivesInfoDao
+						.selectAllDataByPatientArchivesId(so
+								.getPATIENT_ARCHIVES_ID());
+
+				map_inner
+						.put("real_name",
+								pai == null ? ""
+										: Utils.replaceNullToEmptyStr(uui_p == null ? ""
+												: uui_p.getUserRealName()));
+				map_inner.put(
+						"relation_ship",
+						pai == null ? "" : Utils
+								.replaceNullToEmptyStr(pai
+										.getRELATIONSHIP()));
+				map_inner
+						.put("sex",
+								pai == null ? ""
+										: Utils.replaceNullToEmptyStr(StatusContants.map_sex_type
+												.get(pai.getSEX())));
+				map_inner.put(
+						"age",
+						pai == null ? "" : Utils
+								.replaceNullToEmptyStr(String
+										.valueOf(pai.getAGE())));
+			}
+
+			if (StatusContants.role_code_nurse.equals(so
+					.getROLETYPE())) {
+				map_inner.put("remark", "");
+			} else {
+				map_inner
+						.put("remark", Utils
+								.replaceNullToEmptyStr(so
+										.getREMARK()));
+			}
+			map_inner.put("descrip", Utils.replaceNullToEmptyStr(so
+					.getDESCRIPTION()));
+
+			if (so.getROLETYPE().equals(
+					StatusContants.role_code_pharmacy)) {
+				if (so.getORDERSTATUS() == 0) {
+					map_inner.put("status", "待抢约");
+				} else if (so.getORDERSTATUS() == 1) {
+					map_inner.put("status", "配送中");
+				} else if (so.getORDERSTATUS() == -1) {
+					map_inner.put("status", "已过期");
+				} else if (so.getORDERSTATUS() == 3) {
+					map_inner.put("status", "已取消");
+				} else if (so.getORDERSTATUS() == 6) {
+					map_inner.put("status", "已关闭");
+				} else if (so.getORDERSTATUS() == 7) {
+					map_inner.put("status", "人工取消订单");
+				} else if (so.getORDERSTATUS() == 2) {
+					
+					if(StringUtils.isNotBlank(version) && Integer.parseInt(version) >= 32){
+						map_inner.put("status", "已送达");
+					}
+					else
+						map_inner.put("status", "已服务");
+
+				} else if (so.getORDERSTATUS() == 8) {
+					map_inner.put("status", "已送达");
+				} else if (so.getORDERSTATUS() == 9) {
+					map_inner.put("status", "已拒收");
+				}
+			} else {
+				map_inner.put(
+						"status",
+						StatusContants.map_subscribe_order_status
+								.get(so.getORDERSTATUS()).replace(
+										"待上门", "待服务"));
+			}
+
+			map_inner.put("distance", so.getDISTANCE() == null ? ""
+					: this.formatDistance(so.getDISTANCE()));
+			map_inner.put("end_cur", String.valueOf(cur + offset));
+			map_inner
+					.put("role_code", Utils
+							.replaceNullToEmptyStr(uuid
+									.getRoleCode()));
+			map_inner.put("role_code1", so.getROLETYPE());
+			map_inner.put("hospital", hospitalName);
+			map_inner.put("department1", departName);
+			map_inner.put("department2", subDepartName);
+			map_inner.put("doctor_name", Utils
+					.replaceNullToEmptyStr(so.getDOCTOR_NAME()));
+			
+			//获取职称
+			MchRoleTitle mrt = mongoMchRoleTitleDao.getRoleTitleByCode(so.getROLETYPE() + so.getPROFESSIONCODE());
+			
+			map_inner.put("title_name", mrt!=null?mrt.getTitle_name():"");
+			
+			String address = "";
+			String door_plate = "";
+			if (!Utils.isEmpty(so.getADDRESSID())) {
+				SubscribeResourceAndAddressAndArchiveInfo sradaai = subscribeOrderDao
+						.selectSubscribeOrderAddressInfo(Long
+								.parseLong(so.getADDRESSID()));
+				address = sradaai.getADDRESS();
+				door_plate = sradaai.getDOORPLATE();
+			}
+			map_inner
+					.put("address",
+							Utils.replaceNullToEmptyStr(address)
+									+ " "
+									+ Utils.replaceNullToEmptyStr(door_plate));
+
+			map_inner.put("orderType", so.getORDERTYPE().intValue()
+					+ "");
+
+			// 送药上门订单信息
+			if (so.getROLETYPE().equals(
+					StatusContants.role_code_pharmacy)) {
+				map_inner.put("medicineStatus",
+						so.getMEDICINE_STATUS() + "");// 配药状态
+														// 0:未配药;1:已配药
+				map_inner.put("consigneeName", Utils
+						.replaceNullToEmptyStr(so
+								.getCONSIGNEE_NAME()));// 收货人姓名
+				map_inner.put("consigneeAddress", Utils
+						.replaceNullToEmptyStr(so
+								.getCONSIGNEE_ADDRESS()));// 收货地址
+				map_inner.put("consigneeMobile", Utils
+						.replaceNullToEmptyStr(so
+								.getCONSIGNEE_MOBILE()));// 收货人电话
+			}
+
+			// 返回变量赋值
+			list_data.add(map_inner);
+
+			// 游标自加
+			cur++;
+
+		}
+	}
+
+}
